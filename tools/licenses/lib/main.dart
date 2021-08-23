@@ -77,7 +77,7 @@ class _RepositorySourceFile extends _RepositoryLicensedFile {
 
   fs.TextFile get ioTextFile => super.io as fs.TextFile;
 
-  static final RegExp _hashBangPattern = RegExp(r'^#! *(?:/bin/sh|/bin/bash|/usr/bin/env +(?:python|python3|bash))\b');
+  static final RegExp _hashBangPattern = RegExp(r'^#! *(?:/bin/sh|/bin/bash|/usr/bin/env +(?:python[23]?|bash))\b');
 
   @override
   bool get isShellScript {
@@ -2350,6 +2350,7 @@ class _EngineSrcDirectory extends _RepositoryDirectory {
     return entry.name != 'build' // only used by build
         && entry.name != 'buildtools' // only used by build
         && entry.name != 'build_overrides' // only used by build
+        && entry.name != 'gradle' // only used by build
         && entry.name != 'ios_tools' // only used by build
         && entry.name != 'tools' // not distributed in binary
         && entry.name != 'out' // output of build

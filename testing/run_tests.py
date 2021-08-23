@@ -135,6 +135,10 @@ def RunEngineExecutable(build_dir, executable_name, filter, flags=[],
   else:
     test_command = [ executable ] + flags
 
+  if not env:
+    env = os.environ.copy()
+  env['FLUTTER_BUILD_DIRECTORY'] = build_dir
+
   try:
     RunCmd(test_command, cwd=cwd, forbidden_output=forbidden_output, expect_failure=expect_failure, env=env)
   except:
@@ -162,12 +166,9 @@ def RunCCTests(build_dir, filter, coverage, capture_core_dump):
     import resource
     resource.setrlimit(resource.RLIMIT_CORE, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
 
-  # Not all of the engine unit tests are designed to be run more than once.
-  non_repeatable_shuffle_flags = [
-    "--gtest_shuffle",
-  ]
-  shuffle_flags = non_repeatable_shuffle_flags + [
+  shuffle_flags = [
     "--gtest_repeat=2",
+    "--gtest_shuffle",
   ]
 
   RunEngineExecutable(build_dir, 'client_wrapper_glfw_unittests', filter, shuffle_flags, coverage=coverage)
@@ -183,7 +184,7 @@ def RunCCTests(build_dir, filter, coverage, capture_core_dump):
     RunEngineExecutable(build_dir, 'embedder_unittests', filter, shuffle_flags, coverage=coverage)
     RunEngineExecutable(build_dir, 'embedder_proctable_unittests', filter, shuffle_flags, coverage=coverage)
   else:
-    RunEngineExecutable(build_dir, 'flutter_windows_unittests', filter, non_repeatable_shuffle_flags, coverage=coverage)
+    RunEngineExecutable(build_dir, 'flutter_windows_unittests', filter, shuffle_flags, coverage=coverage)
 
     RunEngineExecutable(build_dir, 'client_wrapper_windows_unittests', filter, shuffle_flags, coverage=coverage)
 
@@ -221,7 +222,7 @@ def RunCCTests(build_dir, filter, coverage, capture_core_dump):
   # These unit-tests are Objective-C and can only run on Darwin.
   if IsMac():
     RunEngineExecutable(build_dir, 'flutter_channels_unittests', filter, shuffle_flags, coverage=coverage)
-    RunEngineExecutable(build_dir, 'flutter_desktop_darwin_unittests', filter, non_repeatable_shuffle_flags, coverage=coverage)
+    RunEngineExecutable(build_dir, 'flutter_desktop_darwin_unittests', filter, shuffle_flags, coverage=coverage)
 
   # https://github.com/flutter/flutter/issues/36296
   if IsLinux():
@@ -229,8 +230,8 @@ def RunCCTests(build_dir, filter, coverage, capture_core_dump):
     RunEngineExecutable(build_dir, 'txt_unittests', filter, icu_flags + shuffle_flags, coverage=coverage)
 
   if IsLinux():
-    RunEngineExecutable(build_dir, 'flutter_linux_unittests', filter, non_repeatable_shuffle_flags, coverage=coverage)
-    RunEngineExecutable(build_dir, 'flutter_glfw_unittests', filter, non_repeatable_shuffle_flags, coverage=coverage)
+    RunEngineExecutable(build_dir, 'flutter_linux_unittests', filter, shuffle_flags, coverage=coverage)
+    RunEngineExecutable(build_dir, 'flutter_glfw_unittests', filter, shuffle_flags, coverage=coverage)
 
 
 def RunEngineBenchmarks(build_dir, filter):
@@ -340,7 +341,7 @@ def RunJavaTests(filter, android_variant='android_debug_unopt'):
 
   embedding_deps_dir = os.path.join(buildroot_dir, 'third_party', 'android_embedding_dependencies', 'lib')
   classpath = list(map(str, [
-    os.path.join(buildroot_dir, 'third_party', 'android_tools', 'sdk', 'platforms', 'android-30', 'android.jar'),
+    os.path.join(buildroot_dir, 'third_party', 'android_tools', 'sdk', 'platforms', 'android-31', 'android.jar'),
     os.path.join(embedding_deps_dir, '*'), # Wildcard for all jars in the directory
     os.path.join(android_out_dir, 'flutter.jar'),
     os.path.join(android_out_dir, 'robolectric_tests.jar')
@@ -545,8 +546,8 @@ def main():
       help='Generate coverage reports for each unit test framework run.')
   parser.add_argument('--engine-capture-core-dump', dest='engine_capture_core_dump', action='store_true',
       default=False, help='Capture core dumps from crashes of engine tests.')
-  parser.add_argument('--asan-options', dest='asan_options', action='store', type=str, default='',
-      help='Runtime AddressSanitizer flags to use if built wth asan (example: "verbosity=1:detect_leaks=0')
+  parser.add_argument('--use-sanitizer-suppressions', dest='sanitizer_suppressions', action='store_true',
+      default=False, help='Provide the sanitizer suppressions lists to the via environment to the tests.')
 
   args = parser.parse_args()
 
@@ -559,8 +560,18 @@ def main():
   if args.type != 'java':
     assert os.path.exists(build_dir), 'Build variant directory %s does not exist!' % build_dir
 
-  if args.asan_options:
-    os.environ['ASAN_OPTIONS'] = args.asan_options
+  if args.sanitizer_suppressions:
+    assert IsLinux() or IsMac(), "The sanitizer suppressions flag is only supported on Linux and Mac."
+    file_dir = os.path.dirname(os.path.abspath(__file__))
+    command = [
+      "env", "-i", "bash",
+      "-c", "source {}/sanitizer_suppressions.sh >/dev/null && env".format(file_dir)
+    ]
+    process = subprocess.Popen(command, stdout=subprocess.PIPE)
+    for line in process.stdout:
+      key, _, value = str(line).partition("=")
+      os.environ[key] = value
+    process.communicate() # Avoid pipe deadlock while waiting for termination.
 
   engine_filter = args.engine_filter.split(',') if args.engine_filter else None
   if 'engine' in types:
